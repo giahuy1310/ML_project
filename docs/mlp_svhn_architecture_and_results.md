@@ -46,6 +46,8 @@ flowchart LR
     drop4 --> outputLayer["Dense(10, Softmax)"]
 ```
 
+
+
 ## 3) Hyperparameter Choosing and Optimizing Process
 
 ### Search space
@@ -89,41 +91,48 @@ After selecting the best config, the final model is retrained with:
 
 ### Learning behavior
 
-From the logged training curve:
+From the logged final-training curve (30 epochs, EarlyStopping did not trigger):
 
-- Training accuracy rises steadily to about `0.90`.
-- Validation accuracy improves to around `0.93` by late epochs.
-- Validation loss decreases overall, with mild fluctuations, indicating stable optimization.
+- Training accuracy rises from about `0.55` (epoch 1) to `**0.90**` (epoch 30).
+- Validation accuracy peaks around `**0.94**` (epoch 28: `0.9357`) and ends near `**0.93**` (epoch 30: `0.9312`).
+- Validation loss falls steadily to about `**0.22**` by the last epoch, with small epoch-to-epoch noise (e.g. epochs 23 and 29).
 
-This suggests effective convergence with controlled overfitting for an MLP baseline.
+Validation accuracy is consistently above training accuracy during late epochs. That pattern is expected here because **Dropout is active only during training**, so the model is evaluated under less regularization on the validation split.
 
 ### Final test results
 
-- Test accuracy: **`0.8608`**
+- Test accuracy: `**0.8608`**
 - Classification report:
-  - Macro average F1: **`0.85`**
-  - Weighted average F1: **`0.86`**
+  - Macro average F1: `**0.85**`
+  - Weighted average F1: `**0.86**`
 
 Class-wise observations:
 
-- Stronger classes include `0`, `1`, `3`, `6` (high precision/recall balance around `0.89-0.91` on stronger ones).
-- Weaker class is `7` with recall **`0.77`**, indicating more confusion relative to other digits.
+- Strongest balance: digits `**0**`, `**1**`, `**3**` (F1 about `0.89-0.90`; recall `0.89-0.91`).
+- Mid-tier: `**2**`, `**4**`, `**5**`, `**6**`, `**9**` (F1 about `0.83-0.87`).
+- Weakest: `**7**` (recall `**0.77**`, F1 `**0.80**`), then `**8**` (recall `**0.81**`, F1 `**0.81**`).
 
 ## 5) Interpretation
 
+### What the experiment shows
+
+The pipeline works end-to-end: scaling, stratified validation, grid search, and a longer final fit all produce a usable MLP baseline. The grid is informative even at 16 runs—**lower dropout (`0.05`)** and **slower learning rate (`0.0005`)** consistently beat their alternatives, and the smaller width `[256, 128, 64]` edges out the deeper `[512, 256, 128]` stack on validation accuracy.
+
+After retraining with the best config for 30 epochs, optimization is stable (loss and accuracy improve monotonically with only minor validation jitter). `**86.08%` test accuracy** is a reasonable result for a fully connected model on flattened `32×32×3` inputs, but it should be read together with the **validation–test gap**: held-out validation reaches about `**93%`** while the untouched test set stays at `**86%**` (~7 percentage points). That gap means validation metrics during training **overstate** performance on the final test split; the model is not “underfitting,” but **generalization to the test set is materially weaker than validation suggests**.
+
 ### Advantages
 
-- Simple and reproducible baseline pipeline.
-- Hyperparameter tuning is explicit and auditable (small but complete grid).
-- Converges stably with EarlyStopping and Adam.
-- Achieves solid generalization (`86.08%` test accuracy) for a non-convolutional model.
+- Transparent, reproducible baseline (fixed `random_state=42`, explicit grid, logged metrics).
+- Nonlinearity and dropout clearly help versus a linear baseline on the same preprocessing story.
+- Per-class reports are balanced overall (macro F1 `**0.85`**, weighted F1 `**0.86**`), with several digits at ~`0.90` F1.
 
-### Limitations
+### Limitations and caveats
 
-- Flattened inputs discard image spatial structure, which limits representation power.
-- Performance is likely below CNN-based approaches on SVHN-like tasks.
-- Some class-level confusion remains (notably class `7` recall).
-- Search space is small and may miss better configurations.
+- **Spatial structure is discarded** by flattening; this caps accuracy relative to convolutional models on SVHN-style imagery.
+- **Validation vs test mismatch** is the main reliability caveat: tune or early-stop on validation alone without a separate test check risks optimistic conclusions.
+- **Class `7` is the clear weak point** (lowest recall); `**8`** is next, and `**4`/`5**` sit in a mid band—likely digit-shape and confusion-pair effects rather than a single global failure.
+- The search grid is small (16 configs, 15 epochs per trial); best settings are plausible but not guaranteed globally optimal.
+- Final training ran the full 30 epochs (EarlyStopping with `patience=5` did not fire), so there was no automatic rollback to an earlier checkpoint despite validation continuing to improve late in training.
 
 ## 6) Recommended Next Steps
 
@@ -139,3 +148,4 @@ Class-wise observations:
 - Validation split is deterministic via `random_state=42`.
 - Runtime (CPU vs GPU) affects training speed, but not the intended experiment logic.
 - All reported metrics in this document are copied from notebook outputs (no synthetic values).
+
